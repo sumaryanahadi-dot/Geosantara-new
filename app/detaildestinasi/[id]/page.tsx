@@ -659,7 +659,7 @@ export default function DestinationDetailPage() {
                                 Batal
                               </button>
                               <button
-                                onClick={submitReview}
+                          onClick={() => {}}
                                 disabled={submittingReview || !newReview.comment.trim()}
                                 className="flex-1 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 font-medium flex items-center justify-center gap-2 disabled:opacity-50"
                               >
