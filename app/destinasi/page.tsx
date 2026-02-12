@@ -336,7 +336,7 @@ export default function DestinationsPage() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Cari destinasi, lokasi, atau deskripsi..."
-                  className="w-full px-6 py-4 rounded-full border-2 border-gray-200 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-all text-gray-800 placeholder-gray-500"
+                  className="w-full px-6 py-4 rounded-full border-2 border-gray-200 outline-none focus:border-[#133740] focus:ring-2 focus:ring-[#133740] transition-all text-gray-800 placeholder-gray-500"
                 />
                 <Search className="absolute right-5 top-4 text-gray-400" size={20} />
               </div>
@@ -352,8 +352,8 @@ export default function DestinationsPage() {
                   }
                   className={`px-6 py-3 rounded-full border-2 whitespace-nowrap transition-all font-medium ${
                     selectedCategory === cat
-                      ? "bg-green-600 text-white border-green-600 shadow-lg"
-                      : "bg-white border-gray-300 hover:border-green-500 hover:bg-green-50 text-gray-700"
+                      ? "bg-[#133740] text-white border-[#133740] shadow-lg"
+                      : "bg-white border-gray-300 hover:border-[#133740] hover:[#133740] text-gray-700"
                   }`}
                 >
                   {cat}
@@ -413,7 +413,7 @@ export default function DestinationsPage() {
                     />
 
                     {/* TAG KATEGORI */}
-                    <span className="absolute top-3 left-3 bg-green-600 text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg">
+                    <span className="absolute top-3 left-3 bg-[#E0B554] text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg">
                       {item.category}
                     </span>
 
@@ -431,15 +431,15 @@ export default function DestinationsPage() {
                         size={20}
                         className={
                           isInWishlist
-                            ? "fill-red-500 text-red-500"
-                            : "text-gray-600 hover:text-red-500"
+                            ? "fill-[#E0B554] text-[#E0B554]"
+                            : "text-gray-600 hover:text-[#E0B554]"
                         }
                       />
                     </button>
                   </div>
 
                   <div className="p-5">
-                    <div className="text-sm text-green-600 flex items-center gap-1 mb-2">
+                    <div className="text-sm text-[#E0B554] flex items-center gap-1 mb-2">
                       <MapPin size={14} />
                       <span className="font-medium">{item.location}</span>
                     </div>
@@ -453,13 +453,13 @@ export default function DestinationsPage() {
                     </p>
 
                     <div className="flex justify-between items-center pt-4 border-t border-gray-100">
-                      <span className="text-sm bg-green-50 text-green-700 px-3 py-1.5 rounded-full font-semibold">
+                      <span className="text-sm bg-[#A9A9A9] text-white px-3 py-1.5 rounded-full font-semibold">
                         {formatPrice(item.price)}
                       </span>
                      
                       <Link
                         href={`/detaildestinasi/${item.id}`}
-                        className="px-5 py-2 bg-green-600 text-white rounded-full hover:bg-green-700 font-medium transition-colors text-sm"
+                        className="px-5 py-2 bg-[#E0B554] text-white rounded-full hover:bg-[#E0B554] font-medium transition-colors text-sm"
                       >
                         Lihat Detail
                       </Link>

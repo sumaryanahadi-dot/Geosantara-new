@@ -1,25 +1,62 @@
-// middleware.ts
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+const ADMIN_EMAIL = "admin@geosantara.com"
 
-  // biarin akses login & register
-  if (pathname.startsWith("/api/login") || pathname.startsWith("/api/register")) {
-    return NextResponse.next();
+export async function middleware(request: NextRequest) {
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value)
+            response.cookies.set(name, value, options)
+          })
+        },
+      },
+    }
+  )
+
+  // ✅ GUNAKAN getUser() BUKAN getSession()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  
+  const isAdminRoute = request.nextUrl.pathname.startsWith('/admin')
+
+  if (isAdminRoute) {
+    // Jika tidak ada user atau error, redirect ke login
+    if (error || !user) {
+      const redirectUrl = new URL('/login', request.url)
+      redirectUrl.searchParams.set('redirect', request.nextUrl.pathname)
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    // Cek apakah user adalah admin
+    const userEmail = user.email?.toLowerCase()
+    const isAdmin = userEmail === ADMIN_EMAIL.toLowerCase()
+
+    // Jika bukan admin, redirect ke home
+    if (!isAdmin) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
   }
 
-  const userId = req.cookies.get("user_id")?.value;
-
-  if (!userId) {
-    // redirect ke login kalau ga ada cookie
-    return NextResponse.redirect(new URL("/login", req.url));
-  }
-
-  return NextResponse.next();
+  return response
 }
 
 export const config = {
-  matcher: ["/protected/:path*"], // semua halaman /protected/* bakal dicek
-};
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico).*)',
+  ],
+}

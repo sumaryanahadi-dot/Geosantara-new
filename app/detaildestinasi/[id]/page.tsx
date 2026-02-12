@@ -10,7 +10,7 @@ import {
   Navigation, Clock, DollarSign, Shield,
   CheckCircle, ChevronRight, Mountain,
   Sun, CloudSnow, Map, ChevronLeft, ChevronRight as ChevronRightIcon, X,
-  User, MessageSquare, Send
+  User, MessageSquare, Send, Star
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -53,6 +53,7 @@ interface PriceTable {
 
 interface NewReview {
   comment: string;
+  rating: number;
 }
 
 export default function DestinationDetailPage() {
@@ -76,7 +77,8 @@ export default function DestinationDetailPage() {
   // Review form state
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [newReview, setNewReview] = useState<NewReview>({
-    comment: ""
+    comment: "",
+    rating: 5
   });
   const [submittingReview, setSubmittingReview] = useState(false);
   const [userName, setUserName] = useState("");
@@ -87,6 +89,10 @@ export default function DestinationDetailPage() {
     try {
       setLoading(true);
       
+      // Check user session
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user || null);
+
       // Fetch destination details
       const { data: destData, error: destError } = await supabase
         .from('destinations')
@@ -110,17 +116,38 @@ export default function DestinationDetailPage() {
         setGalleryImages(images);
       }
 
-      // Fetch reviews
+      // Fetch reviews for THIS destination
       const { data: reviewsData, error: reviewsError } = await supabase
         .from('reviews')
         .select('*')
         .eq('destination_id', destinationId)
         .order('created_at', { ascending: false });
 
-      if (!reviewsError && reviewsData) {
-        setReviews(reviewsData);
+      if (!reviewsError && reviewsData && reviewsData.length > 0) {
+        // Process reviews with user info
+        const processedReviews = await Promise.all(
+          reviewsData.map(async (review) => {
+            // Fetch user profile if available
+            if (review.user_id) {
+              const { data: userData } = await supabase
+                .from('profiles')
+                .select('username, email')
+                .eq('id', review.user_id)
+                .single();
+              
+              return {
+                ...review,
+                user_name: userData?.username || review.user_name || "Anonim",
+                user_avatar: userData?.avatar_url,
+                is_own_review: review.user_id === session?.user?.id
+              };
+            }
+            return review;
+          })
+        );
+        setReviews(processedReviews);
       } else {
-        // Fallback to mock reviews if no reviews table
+        // Fallback to mock reviews if no reviews in database
         const mockReviews: Review[] = [
           {
             id: "1",
@@ -167,11 +194,11 @@ export default function DestinationDetailPage() {
       ]);
 
       // Check if in wishlist
-      if (user) {
+      if (session?.user) {
         const { data: wishlistData } = await supabase
           .from('wishlist')
           .select('id')
-          .eq('user_id', user.id)
+          .eq('user_id', session.user.id)
           .eq('destination_id', destinationId)
           .single();
         
@@ -189,7 +216,82 @@ export default function DestinationDetailPage() {
     if (destinationId) {
       fetchData();
     }
-  }, [destinationId, router, user]);
+  }, [destinationId, router]);
+
+  // ================= SUBMIT REVIEW =================
+  const handleSubmitReview = async () => {
+    if (!user) {
+      alert("Silakan login terlebih dahulu untuk memberikan ulasan");
+      router.push(`/login?redirect=/detaildestinasi/${destinationId}`);
+      return;
+    }
+
+    if (!newReview.comment.trim()) {
+      alert("Silakan tulis ulasan Anda");
+      return;
+    }
+
+    setSubmittingReview(true);
+    try {
+      // Submit review to database
+      const reviewData = {
+        destination_id: destinationId,
+        user_id: user.id,
+        user_name: userName || user.email?.split('@')[0] || "Pengguna",
+        rating: newReview.rating,
+        comment: newReview.comment.trim(),
+        created_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('reviews')
+        .insert([reviewData])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Add new review to state
+      const newReviewWithId: Review = {
+        ...reviewData,
+        id: data.id,
+        is_own_review: true
+      };
+
+      setReviews([newReviewWithId, ...reviews]);
+
+      // Update destination rating
+      if (destination) {
+        const newTotalReviews = reviews.length + 1;
+        const newAverageRating = (destination.rating * reviews.length + newReview.rating) / newTotalReviews;
+        
+        await supabase
+          .from('destinations')
+          .update({
+            rating: parseFloat(newAverageRating.toFixed(1)),
+            total_reviews: newTotalReviews
+          })
+          .eq('id', destinationId);
+      }
+
+      // Reset form
+      setNewReview({ comment: "", rating: 5 });
+      setUserName("");
+      setUserEmail("");
+      setShowReviewForm(false);
+
+      alert("Ulasan berhasil dikirim! Terima kasih.");
+
+      // Refresh data
+      fetchData();
+
+    } catch (error) {
+      console.error("Error submitting review:", error);
+      alert("Gagal mengirim ulasan. Silakan coba lagi.");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   // ================= TOGGLE WISHLIST =================
   const toggleWishlist = async () => {
@@ -210,6 +312,7 @@ export default function DestinationDetailPage() {
 
         if (error) throw error;
         setIsInWishlist(false);
+        alert("Dihapus dari wishlist");
       } else {
         // Add to wishlist
         const { error } = await supabase
@@ -217,11 +320,13 @@ export default function DestinationDetailPage() {
           .insert({
             user_id: user.id,
             destination_id: destinationId,
+            destination_name: destination?.name,
             notes: `Tertarik dengan ${destination?.name}`
           });
 
         if (error) throw error;
         setIsInWishlist(true);
+        alert("Ditambahkan ke wishlist");
       }
     } catch (error) {
       console.error("Error toggling wishlist:", error);
@@ -229,7 +334,6 @@ export default function DestinationDetailPage() {
     }
   };
 
- 
   // ================= GALLERY FUNCTIONS =================
   const nextImage = () => {
     if (selectedImageIndex !== null && galleryImages.length > 0) {
@@ -252,6 +356,25 @@ export default function DestinationDetailPage() {
       currency: 'IDR',
       minimumFractionDigits: 0
     }).format(price);
+  };
+
+  // ================= RENDER STAR RATING =================
+  const renderStars = (rating: number) => {
+    return (
+      <div className="flex items-center gap-1">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            size={16}
+            className={`${
+              star <= rating 
+                ? "text-yellow-500 fill-yellow-500" 
+                : "text-gray-300"
+            }`}
+          />
+        ))}
+      </div>
+    );
   };
 
   // ================= LOADING STATE =================
@@ -291,10 +414,10 @@ export default function DestinationDetailPage() {
     );
   }
 
-  // Calculate average rating (use default rating if no reviews)
-  const averageRating = destination.rating || (reviews.length > 0 
+  // Calculate average rating
+  const averageRating = reviews.length > 0 
     ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length 
-    : 4.5);
+    : destination.rating || 4.5;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -474,7 +597,7 @@ export default function DestinationDetailPage() {
                       <p>{destination.description}</p>
                       
                       <p>
-                        <strong>{destination.name}</strong> adalah gunung api aktif di Jawa Timur yang terkenal dengan pemandangan matahari terbitnya dan berada di dalam kawasan Taman Nasional Bromo Tengger. Gunung ini memiliki ketinggian 2,329 meter di atas permukaan laut dan dikelilingi oleh "Laut Pasir" yang luas.
+                        <strong className="text-gray-900">{destination.name}</strong> adalah gunung api aktif di Jawa Timur yang terkenal dengan pemandangan matahari terbitnya dan berada di dalam kawasan Taman Nasional Bromo Tengger. Gunung ini memiliki ketinggian 2,329 meter di atas permukaan laut dan dikelilingi oleh "Laut Pasir" yang luas.
                       </p>
                       
                       <p>
@@ -499,16 +622,16 @@ export default function DestinationDetailPage() {
                       </div>
                       <div className="space-y-4">
                         <div className="flex justify-between items-center pb-3 border-b border-green-100">
-                          <span className="text-gray-600">Ketinggian</span>
+                          <span className="text-gray-700">Ketinggian</span>
                           <span className="font-bold text-green-700">2,329 mdpl</span>
                         </div>
                         <div className="flex justify-between items-center pb-3 border-b border-green-100">
-                          <span className="text-gray-600">Tipe Gunung</span>
-                          <span className="font-medium">Stratovolcano</span>
+                          <span className="text-gray-700">Tipe Gunung</span>
+                          <span className="font-medium text-gray-900">Stratovolcano</span>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className="text-gray-600">Letusan Terakhir</span>
-                          <span className="font-medium">2016</span>
+                          <span className="text-gray-700">Letusan Terakhir</span>
+                          <span className="font-medium text-gray-900">2016</span>
                         </div>
                       </div>
                     </div>
@@ -522,16 +645,16 @@ export default function DestinationDetailPage() {
                       </div>
                       <div className="space-y-4">
                         <div className="flex justify-between items-center pb-3 border-b border-yellow-100">
-                          <span className="text-gray-600">Musim Kunjungan</span>
+                          <span className="text-gray-700">Musim Kunjungan</span>
                           <span className="font-bold text-yellow-700">April - Oktober</span>
                         </div>
                         <div className="flex justify-between items-center pb-3 border-b border-yellow-100">
-                          <span className="text-gray-600">Sunrise View</span>
-                          <span className="font-medium">04:30 - 06:00 WIB</span>
+                          <span className="text-gray-700">Sunrise View</span>
+                          <span className="font-medium text-gray-900">04:30 - 06:00 WIB</span>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className="text-gray-600">Suhu Rata-rata</span>
-                          <span className="font-medium">5°C - 15°C</span>
+                          <span className="text-gray-700">Suhu Rata-rata</span>
+                          <span className="font-medium text-gray-900">5°C - 15°C</span>
                         </div>
                       </div>
                     </div>
@@ -548,7 +671,7 @@ export default function DestinationDetailPage() {
                         {destination.facilities.map((facility, index) => (
                           <span
                             key={index}
-                            className="px-4 py-2.5 bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 rounded-xl text-sm font-medium border border-green-200 hover:border-green-300 transition-colors"
+                            className="px-4 py-2.5 bg-gradient-to-r from-green-50 to-emerald-50 text-green-800 rounded-xl text-sm font-medium border border-green-200 hover:border-green-300 transition-colors"
                           >
                             {facility}
                           </span>
@@ -567,9 +690,10 @@ export default function DestinationDetailPage() {
                       <div>
                         <h2 className="text-2xl font-bold text-gray-900 mb-2">Ulasan Pengunjung</h2>
                         <div className="flex items-center gap-3">
-                          <span className="text-3xl font-bold">{averageRating.toFixed(1)}</span>
-                          <span className="text-gray-500">• {reviews.length} ulasan</span>
+                          <span className="text-3xl font-bold text-gray-900">{averageRating.toFixed(1)}</span>
+                          <span className="text-gray-600">• {reviews.length} ulasan</span>
                         </div>
+                        {renderStars(averageRating)}
                       </div>
                       
                       <button
@@ -598,6 +722,31 @@ export default function DestinationDetailPage() {
                           </div>
                           
                           <div className="space-y-6">
+                            {/* Rating Selection */}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-3">
+                                Beri Rating
+                              </label>
+                              <div className="flex gap-2">
+                                {[1, 2, 3, 4, 5].map((rating) => (
+                                  <button
+                                    key={rating}
+                                    onClick={() => setNewReview({...newReview, rating})}
+                                    className={`p-3 rounded-lg ${
+                                      rating <= newReview.rating 
+                                        ? "bg-yellow-100 text-yellow-600" 
+                                        : "bg-gray-100 text-gray-400"
+                                    }`}
+                                  >
+                                    <Star 
+                                      size={24} 
+                                      className={rating <= newReview.rating ? "fill-yellow-500" : ""}
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
                             {/* Optional Name and Email */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div>
@@ -633,7 +782,7 @@ export default function DestinationDetailPage() {
                               <textarea
                                 value={newReview.comment}
                                 onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900"
                                 rows={5}
                                 placeholder="Bagikan pengalaman Anda mengunjungi destinasi ini..."
                                 maxLength={500}
@@ -659,7 +808,7 @@ export default function DestinationDetailPage() {
                                 Batal
                               </button>
                               <button
-                          onClick={() => {}}
+                                onClick={handleSubmitReview}
                                 disabled={submittingReview || !newReview.comment.trim()}
                                 className="flex-1 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 font-medium flex items-center justify-center gap-2 disabled:opacity-50"
                               >
@@ -698,19 +847,27 @@ export default function DestinationDetailPage() {
                               </div>
                               <div>
                                 <h4 className="font-bold text-gray-900 text-lg">{review.user_name}</h4>
-                                <p className="text-sm text-gray-500">
-                                  {new Date(review.created_at).toLocaleDateString('id-ID', {
-                                    day: 'numeric',
-                                    month: 'long',
-                                    year: 'numeric'
-                                  })}
-                                </p>
+                                <div className="flex items-center gap-3 mt-1">
+                                  {renderStars(review.rating)}
+                                  <span className="text-sm text-gray-500">
+                                    {new Date(review.created_at).toLocaleDateString('id-ID', {
+                                      day: 'numeric',
+                                      month: 'long',
+                                      year: 'numeric'
+                                    })}
+                                  </span>
+                                </div>
                               </div>
                             </div>
+                            {review.is_own_review && (
+                              <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                                Ulasan Anda
+                              </span>
+                            )}
                           </div>
                           
                           <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200">
-                            <p className="text-gray-700 text-lg leading-relaxed">{review.comment}</p>
+                            <p className="text-gray-800 text-lg leading-relaxed">{review.comment}</p>
                           </div>
                         </div>
                       ))
@@ -718,7 +875,7 @@ export default function DestinationDetailPage() {
                       <div className="text-center py-12">
                         <MessageSquare className="h-16 w-16 text-gray-300 mx-auto mb-4" />
                         <h3 className="text-xl font-semibold text-gray-700 mb-2">Belum Ada Ulasan</h3>
-                        <p className="text-gray-500 mb-6">
+                        <p className="text-gray-600 mb-6">
                           Jadilah yang pertama memberikan ulasan untuk {destination.name}
                         </p>
                         <button
@@ -763,7 +920,7 @@ export default function DestinationDetailPage() {
                                 <span className="text-sm text-gray-600">{similar.location}</span>
                               </div>
                             </div>
-                            <div className="text-gray-600">
+                            <div className="text-gray-900">
                               {similar.rating?.toFixed(1) || "4.5"}
                             </div>
                           </div>
@@ -793,7 +950,7 @@ export default function DestinationDetailPage() {
                   {similarDestinations.length === 0 && (
                     <div className="text-center py-12">
                       <CloudSnow className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                      <p className="text-gray-500">Belum ada destinasi serupa</p>
+                      <p className="text-gray-600">Belum ada destinasi serupa</p>
                     </div>
                   )}
 
@@ -839,7 +996,7 @@ export default function DestinationDetailPage() {
                         key={index}
                         className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
                       >
-                        <td className="py-3 px-4 border-r border-gray-200 font-medium">
+                        <td className="py-3 px-4 border-r border-gray-200 font-medium text-gray-900">
                           {price.day_type}
                         </td>
                         <td className="py-3 px-4 border-r border-gray-200">
@@ -865,51 +1022,6 @@ export default function DestinationDetailPage() {
               </div>
             </div>
 
-            {/* BOOKING CARD */}
-            <div className="bg-white rounded-2xl p-6 shadow-lg">
-              <div className="flex items-center gap-3 mb-6">
-                <Calendar className="text-green-600" size={24} />
-                <h3 className="text-xl font-bold text-gray-900">Pesan Sekarang</h3>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="text-sm text-gray-600">Harga per orang</p>
-                    <p className="text-2xl font-bold text-green-700">
-                      {formatPrice(destination.price)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-gray-600">Rating</p>
-                    <span className="text-lg font-bold">{averageRating.toFixed(1)}</span>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={() => {
-                    if (!user) {
-                      alert("Login dulu untuk melakukan booking");
-                      router.push(`/login?redirect=/detaildestinasi/${destinationId}`);
-                      return;
-                    }
-                    // TODO: Implement booking
-                    alert("Fitur booking akan segera hadir!");
-                  }}
-                  className="w-full py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 font-bold text-lg"
-                >
-                  Booking Sekarang
-                </button>
-                
-                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg">
-                  <Shield className="text-green-600" size={24} />
-                  <div>
-                    <p className="font-medium text-green-800">Booking Aman</p>
-                    <p className="text-sm text-green-700">Garansi uang kembali</p>
-                  </div>
-                </div>
-              </div>
-            </div>
 
             {/* CONTACT & INFO */}
             <div className="bg-white rounded-2xl p-6 shadow-lg">

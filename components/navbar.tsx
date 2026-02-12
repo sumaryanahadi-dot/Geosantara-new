@@ -12,9 +12,17 @@ import {
   FaSignOutAlt,
   FaCog,
   FaHistory,
-  FaStar
+  FaStar,
+  FaGlobe,
+  FaChevronRight,
+  FaShieldAlt,
+  FaHome,
+  FaUsers,
+  FaImage
 } from "react-icons/fa";
 import { supabase } from "@/lib/supabase";
+
+const ADMIN_EMAIL = "admin@geosantara.com";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
@@ -23,11 +31,18 @@ export default function Navbar() {
   const [wishlistCount, setWishlistCount] = useState(0);
   const [scrolled, setScrolled] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState({
+    name: "",
+    username: "",
+    totalDestinations: 0
+  });
   const [userStats, setUserStats] = useState({
     totalReviews: 0,
-    totalWishlist: 0
+    totalWishlist: 0,
+    totalDestinations: 0
   });
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -41,6 +56,34 @@ export default function Navbar() {
         if (session?.user) {
           setUser(session.user);
           
+          // Check if user is admin
+          const userEmail = session.user.email?.toLowerCase();
+          const isAdminUser = userEmail === ADMIN_EMAIL.toLowerCase();
+          setIsAdmin(isAdminUser);
+          
+          // Fetch user profile from profiles table
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name, username')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (profile) {
+            setUserProfile({
+              name: profile.full_name || session.user.email?.split('@')[0] || "User",
+              username: profile.username || `@${session.user.email?.split('@')[0]}` || "@user",
+              totalDestinations: 0
+            });
+          } else {
+            // Fallback to email if no profile
+            const username = session.user.email?.split('@')[0] || "user";
+            setUserProfile({
+              name: username.charAt(0).toUpperCase() + username.slice(1),
+              username: `@${username}`,
+              totalDestinations: 0
+            });
+          }
+
           // Fetch wishlist count
           const { count: wishlistCount } = await supabase
             .from('wishlist')
@@ -55,15 +98,29 @@ export default function Navbar() {
             .select('*', { count: 'exact', head: true })
             .eq('user_id', session.user.id);
           
-          setUserStats(prev => ({
-            ...prev,
+          // Fetch user's visited destinations count
+          const { count: destinationsCount } = await supabase
+            .from('user_destinations')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', session.user.id);
+          
+          setUserStats({
             totalReviews: reviewsCount || 0,
-            totalWishlist: wishlistCount || 0
+            totalWishlist: wishlistCount || 0,
+            totalDestinations: destinationsCount || (isAdminUser ? 0 : 6) // Default 6 for non-admin
+          });
+          
+          // Update userProfile with actual destinations count
+          setUserProfile(prev => ({
+            ...prev,
+            totalDestinations: destinationsCount || (isAdminUser ? 0 : 6)
           }));
         } else {
           setUser(null);
+          setIsAdmin(false);
           setWishlistCount(0);
-          setUserStats({ totalReviews: 0, totalWishlist: 0 });
+          setUserStats({ totalReviews: 0, totalWishlist: 0, totalDestinations: 0 });
+          setUserProfile({ name: "", username: "", totalDestinations: 0 });
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
@@ -80,11 +137,19 @@ export default function Navbar() {
       async (event, session) => {
         if (session?.user) {
           setUser(session.user);
+          
+          // Check if user is admin
+          const userEmail = session.user.email?.toLowerCase();
+          const isAdminUser = userEmail === ADMIN_EMAIL.toLowerCase();
+          setIsAdmin(isAdminUser);
+          
           await fetchUserData();
         } else {
           setUser(null);
+          setIsAdmin(false);
           setWishlistCount(0);
-          setUserStats({ totalReviews: 0, totalWishlist: 0 });
+          setUserStats({ totalReviews: 0, totalWishlist: 0, totalDestinations: 0 });
+          setUserProfile({ name: "", username: "", totalDestinations: 0 });
         }
       }
     );
@@ -139,6 +204,11 @@ export default function Navbar() {
     { name: "Destinasi", path: "/destinasi" },
   ];
 
+  // Add admin menu items if user is admin
+  if (isAdmin) {
+    navItems.push({ name: "Admin Panel", path: "/admin" });
+  }
+
   const isActive = (path: string) => pathname === path;
   const isIconActive = (page: string) => pathname === `/${page}`;
 
@@ -186,13 +256,15 @@ export default function Navbar() {
                 key={item.path}
                 href={item.path}
                 className={`
-                  transition-all duration-200 px-3 py-2 rounded-lg
+                  transition-all duration-200 px-3 py-2 rounded-lg flex items-center gap-2
                   ${isActive(item.path)
                     ? "text-[#E0B554] font-semibold bg-[#E0B554]/10 border border-[#E0B554]/20"
                     : "text-white hover:text-[#E0B554] hover:bg-[#E0B554]/5"
                   }
+                  ${item.name === "Admin Panel" ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20" : ""}
                 `}
               >
+                {item.name === "Admin Panel" && <FaShieldAlt className="w-4 h-4" />}
                 {item.name}
               </Link>
             ))}
@@ -200,6 +272,14 @@ export default function Navbar() {
 
           {/* DESKTOP ICONS */}
           <div className="hidden md:flex items-center gap-3">
+            {/* Admin Badge */}
+            {isAdmin && (
+              <div className="px-3 py-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-bold rounded-full flex items-center gap-2">
+                <FaShieldAlt className="w-4 h-4" />
+                <span>ADMIN</span>
+              </div>
+            )}
+
             {/* Wishlist Icon */}
             <button
               onClick={() => handleIconClick("wishlist")}
@@ -210,8 +290,10 @@ export default function Navbar() {
                     ? "text-[#E0B554] bg-[#E0B554]/10 border border-[#E0B554]/20"
                     : "text-white hover:text-[#E0B554] hover:bg-[#E0B554]/5"
                 }
+                ${isAdmin ? "opacity-80" : ""}
               `}
               title={user ? "Wishlist" : "Login untuk melihat wishlist"}
+              disabled={isAdmin}
             >
               {isIconActive("wishlist") ? (
                 <FaHeart className="w-5 h-5 text-[#E0B554]" />
@@ -219,7 +301,7 @@ export default function Navbar() {
                 <FaRegHeart className="w-5 h-5" />
               )}
 
-              {user && wishlistCount > 0 && (
+              {user && !isAdmin && wishlistCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                   {wishlistCount}
                 </span>
@@ -238,14 +320,27 @@ export default function Navbar() {
                       : "text-white hover:text-[#E0B554] hover:bg-[#E0B554]/5"
                   }
                 `}
-                title={user ? user.email : "Login"}
+                title={user ? (isAdmin ? "Admin Dashboard" : user.email) : "Login"}
               >
                 {user ? (
                   <>
-                    <FaUser className="w-5 h-5" />
-                    <span className="text-sm font-medium max-w-[120px] truncate">
-                      {user.email?.split('@')[0]}
-                    </span>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      isAdmin 
+                        ? "bg-gradient-to-r from-purple-600 to-pink-600" 
+                        : "bg-[#E0B554]"
+                    }`}>
+                      <span className="font-bold text-white text-sm">
+                        {userProfile.name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-medium max-w-[120px] truncate">
+                        {userProfile.name}
+                      </div>
+                      <div className="text-xs text-gray-300 truncate max-w-[120px]">
+                        {isAdmin ? "Administrator" : user.email}
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <FaRegUser className="w-5 h-5" />
@@ -255,95 +350,194 @@ export default function Navbar() {
               {/* Profile Popup */}
               {showProfilePopup && user && (
                 <div 
-                  className="absolute right-0 top-16 w-72 bg-white rounded-xl shadow-lg border border-gray-200 py-2 z-50"
+                  className="absolute right-0 top-16 w-80 bg-white rounded-xl shadow-xl border border-gray-100 py-4 z-50"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {/* User Info */}
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-[#E0B554] rounded-full flex items-center justify-center">
-                        <span className="font-bold text-white text-lg">
-                          {user.email?.charAt(0).toUpperCase()}
+                  {/* Header Profile */}
+                  <div className="px-6 pb-4 mb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-md ${
+                        isAdmin 
+                          ? "bg-gradient-to-br from-purple-600 to-pink-600" 
+                          : "bg-gradient-to-br from-[#E0B554] to-[#d4a845]"
+                      }`}>
+                        <span className="font-bold text-white text-xl">
+                          {userProfile.name.charAt(0).toUpperCase()}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-800 truncate">
-                          {user.email?.split('@')[0]}
-                        </p>
+                        <h3 className="font-bold text-gray-800 text-lg truncate">
+                          {userProfile.name}
+                          {isAdmin && (
+                            <span className="ml-2 text-xs bg-gradient-to-r from-purple-600 to-pink-600 text-white px-2 py-1 rounded-full">
+                              ADMIN
+                            </span>
+                          )}
+                        </h3>
                         <p className="text-sm text-gray-500 truncate">
                           {user.email}
                         </p>
                       </div>
                     </div>
-
-                    {/* Stats */}
-                    <div className="flex gap-4 mt-3 pt-3 border-t border-gray-100">
-                      <div className="text-center">
+                    
+                    {/* User Stats Row */}
+                    <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                      <div className="text-center flex-1">
+                        <p className="text-xs text-gray-500 mb-1">Wishlist</p>
                         <div className="flex items-center justify-center gap-1">
-                          <FaHeart className="text-red-500 text-sm" />
-                          <span className="font-bold text-gray-800">{userStats.totalWishlist}</span>
+                          <FaHeart className={`${isAdmin ? "text-gray-400" : "text-red-500"}`} />
+                          <span className="font-bold text-gray-800 text-lg">
+                            {isAdmin ? "∞" : userStats.totalWishlist}
+                          </span>
                         </div>
-                        <p className="text-xs text-gray-500">Wishlist</p>
                       </div>
-                      <div className="text-center">
+                      <div className="h-8 w-px bg-gray-300"></div>
+                      <div className="text-center flex-1">
+                        <p className="text-xs text-gray-500 mb-1">Review</p>
                         <div className="flex items-center justify-center gap-1">
-                          <FaStar className="text-yellow-500 text-sm" />
-                          <span className="font-bold text-gray-800">{userStats.totalReviews}</span>
+                          <FaStar className="text-yellow-500" />
+                          <span className="font-bold text-gray-800 text-lg">{userStats.totalReviews}</span>
                         </div>
-                        <p className="text-xs text-gray-500">Ulasan</p>
+                      </div>
+                      <div className="h-8 w-px bg-gray-300"></div>
+                      <div className="text-center flex-1">
+                        <p className="text-xs text-gray-500 mb-1">Destinasi</p>
+                        <div className="flex items-center justify-center">
+                          <span className="font-bold text-gray-800 text-lg">
+                            {isAdmin ? "∞" : userStats.totalDestinations}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Menu Items */}
-                  <div className="py-1">
+                  <div className="space-y-1 px-2">
+                    {/* Admin Menu Items */}
+                    {isAdmin && (
+                      <>
+                        <Link 
+                          href="/admin" 
+                          className="flex items-center gap-4 px-4 py-3 text-left text-gray-700 hover:bg-purple-50 rounded-lg"
+                          onClick={() => setShowProfilePopup(false)}
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg flex items-center justify-center">
+                            <FaShieldAlt className="text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">Admin Dashboard</p>
+                            <p className="text-xs text-gray-500">Kelola sistem</p>
+                          </div>
+                        </Link>
+                        
+                        <Link 
+                          href="/admin/destinations" 
+                          className="flex items-center gap-4 px-4 py-3 text-left text-gray-700 hover:bg-purple-50 rounded-lg"
+                          onClick={() => setShowProfilePopup(false)}
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg flex items-center justify-center">
+                            <FaImage className="text-blue-500" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">Kelola Destinasi</p>
+                            <p className="text-xs text-gray-500">Tambah/edit destinasi</p>
+                          </div>
+                        </Link>
+                        
+                        <Link 
+                          href="/admin/users" 
+                          className="flex items-center gap-4 px-4 py-3 text-left text-gray-700 hover:bg-purple-50 rounded-lg"
+                          onClick={() => setShowProfilePopup(false)}
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-green-100 to-green-50 rounded-lg flex items-center justify-center">
+                            <FaUsers className="text-green-500" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">Kelola User</p>
+                            <p className="text-xs text-gray-500">Lihat semua pengguna</p>
+                          </div>
+                        </Link>
+                        
+                        <div className="my-2 border-t border-gray-100"></div>
+                      </>
+                    )}
+
+                    {/* Regular User Menu Items */}
+                    {!isAdmin && (
+                      <>
+                        <Link 
+                          href="/wishlist" 
+                          className="flex items-center gap-4 px-4 py-3 text-left text-gray-700 hover:bg-[#E0B554]/10 rounded-lg"
+                          onClick={() => setShowProfilePopup(false)}
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-red-100 to-red-50 rounded-lg flex items-center justify-center">
+                            <FaHeart className="text-red-500" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">Wishlist</p>
+                            <p className="text-xs text-gray-500">{userStats.totalWishlist} item tersimpan</p>
+                          </div>
+                        </Link>
+                        
+                        <Link 
+                          href="/reviews" 
+                          className="flex items-center gap-4 px-4 py-3 text-left text-gray-700 hover:bg-[#E0B554]/10 rounded-lg"
+                          onClick={() => setShowProfilePopup(false)}
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-yellow-100 to-yellow-50 rounded-lg flex items-center justify-center">
+                            <FaStar className="text-yellow-500" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">Review</p>
+                            <p className="text-xs text-gray-500">{userStats.totalReviews} ulasan diberikan</p>
+                          </div>
+                        </Link>
+                        
+                        <Link 
+                          href="/destinasi" 
+                          className="flex items-center gap-4 px-4 py-3 text-left text-gray-700 hover:bg-[#E0B554]/10 rounded-lg"
+                          onClick={() => setShowProfilePopup(false)}
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg flex items-center justify-center">
+                            <FaGlobe className="text-blue-500" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">Destinasi</p>
+                            <p className="text-xs text-gray-500">{userStats.totalDestinations} destinasi dikunjungi</p>
+                          </div>
+                        </Link>
+                      </>
+                    )}
+
+                    {/* Common Menu Items */}
                     <Link 
-                      href="/profile" 
-                      className="flex items-center gap-3 px-4 py-3 text-left text-gray-700 hover:bg-[#E0B554]/10"
+                      href="/profile/settings" 
+                      className="flex items-center gap-4 px-4 py-3 text-left text-gray-700 hover:bg-gray-50 rounded-lg"
                       onClick={() => setShowProfilePopup(false)}
                     >
-                      <FaUser className="text-gray-500" />
-                      <span>Profil Saya</span>
+                      <div className="w-10 h-10 bg-gradient-to-br from-gray-100 to-gray-50 rounded-lg flex items-center justify-center">
+                        <FaCog className="text-gray-500" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-800">Pengaturan</p>
+                        <p className="text-xs text-gray-500">Ubah profil & password</p>
+                      </div>
                     </Link>
-                    
-                    <Link 
-                      href="/wishlist" 
-                      className="flex items-center gap-3 px-4 py-3 text-left text-gray-700 hover:bg-[#E0B554]/10"
-                      onClick={() => setShowProfilePopup(false)}
-                    >
-                      <FaHeart className="text-red-500" />
-                      <span>Wishlist</span>
-                      {wishlistCount > 0 && (
-                        <span className="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                          {wishlistCount}
-                        </span>
-                      )}
-                    </Link>
-                    
-                    <Link 
-                      href="/bookings" 
-                      className="flex items-center gap-3 px-4 py-3 text-left text-gray-700 hover:bg-[#E0B554]/10"
-                      onClick={() => setShowProfilePopup(false)}
-                    >
-                      <FaHistory className="text-blue-500" />
-                      <span>Pemesanan</span>
-                    </Link>
-                    
-                    <Link 
-                      href="/settings" 
-                      className="flex items-center gap-3 px-4 py-3 text-left text-gray-700 hover:bg-[#E0B554]/10"
-                      onClick={() => setShowProfilePopup(false)}
-                    >
-                      <FaCog className="text-gray-500" />
-                      <span>Pengaturan</span>
-                    </Link>
-                    
+                  </div>
+
+                  {/* Logout Button */}
+                  <div className="mt-4 pt-4 border-t border-gray-100 px-2">
                     <button
                       onClick={handleLogout}
-                      className="flex items-center gap-3 w-full px-4 py-3 text-left text-red-600 hover:bg-red-50"
+                      className="flex items-center gap-4 w-full px-4 py-3 text-left text-red-600 hover:bg-red-50 rounded-lg"
                     >
-                      <FaSignOutAlt />
-                      <span>Keluar</span>
+                      <div className="w-10 h-10 bg-gradient-to-br from-red-100 to-red-50 rounded-lg flex items-center justify-center">
+                        <FaSignOutAlt className="text-red-500" />
+                      </div>
+                      <div>
+                        <p className="font-medium">Logout</p>
+                        <p className="text-xs text-gray-500">Keluar dari akun</p>
+                      </div>
                     </button>
                   </div>
                 </div>
@@ -370,44 +564,56 @@ export default function Navbar() {
                   href={item.path}
                   onClick={() => setOpen(false)}
                   className={`
-                    py-3 px-4 rounded-lg transition-all duration-200
+                    py-3 px-4 rounded-lg transition-all duration-200 flex items-center gap-2
                     ${
                       isActive(item.path)
                         ? "bg-[#E0B554]/20 text-[#E0B554] font-semibold border-l-4 border-[#E0B554]"
                         : "text-white hover:text-[#E0B554] hover:bg-[#E0B554]/10"
                     }
+                    ${item.name === "Admin Panel" ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20" : ""}
                   `}
                 >
+                  {item.name === "Admin Panel" && <FaShieldAlt className="w-4 h-4" />}
                   {item.name}
                 </Link>
               ))}
 
               <div className="flex justify-between items-center pt-6 border-t border-[#E0B554]/20">
                 <div className="flex gap-4 items-center w-full">
+                  {/* Admin Badge Mobile */}
+                  {isAdmin && (
+                    <div className="px-3 py-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-sm font-bold rounded-full flex items-center gap-2">
+                      <FaShieldAlt className="w-3 h-3" />
+                      <span>ADMIN</span>
+                    </div>
+                  )}
+
                   {/* Mobile Wishlist */}
-                  <button
-                    onClick={() => handleIconClick("wishlist")}
-                    className={`
-                      p-3 rounded-full transition-all duration-300 relative
-                      ${
-                        isIconActive("wishlist")
-                          ? "text-[#E0B554] bg-[#E0B554]/10"
-                          : "text-white hover:text-[#E0B554] hover:bg-[#E0B554]/5"
-                      }
-                    `}
-                  >
-                    {isIconActive("wishlist") ? (
-                      <FaHeart className="w-6 h-6 text-[#E0B554]" />
-                    ) : (
-                      <FaRegHeart className="w-6 h-6" />
-                    )}
-                    
-                    {user && wishlistCount > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                        {wishlistCount}
-                      </span>
-                    )}
-                  </button>
+                  {!isAdmin && (
+                    <button
+                      onClick={() => handleIconClick("wishlist")}
+                      className={`
+                        p-3 rounded-full transition-all duration-300 relative
+                        ${
+                          isIconActive("wishlist")
+                            ? "text-[#E0B554] bg-[#E0B554]/10"
+                            : "text-white hover:text-[#E0B554] hover:bg-[#E0B554]/5"
+                        }
+                      `}
+                    >
+                      {isIconActive("wishlist") ? (
+                        <FaHeart className="w-6 h-6 text-[#E0B554]" />
+                      ) : (
+                        <FaRegHeart className="w-6 h-6" />
+                      )}
+                      
+                      {user && wishlistCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                          {wishlistCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 <button
@@ -422,7 +628,15 @@ export default function Navbar() {
                   `}
                 >
                   {user ? (
-                    <FaUser className="w-6 h-6" />
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      isAdmin 
+                        ? "bg-gradient-to-r from-purple-600 to-pink-600" 
+                        : "bg-[#E0B554]"
+                    }`}>
+                      <span className="font-bold text-white text-sm">
+                        {userProfile.name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
                   ) : (
                     <FaRegUser className="w-6 h-6" />
                   )}
@@ -433,33 +647,51 @@ export default function Navbar() {
               {user && (
                 <div className="mt-4 pt-4 border-t border-[#E0B554]/20">
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 bg-[#E0B554] rounded-full flex items-center justify-center">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                      isAdmin 
+                        ? "bg-gradient-to-r from-purple-600 to-pink-600" 
+                        : "bg-[#E0B554]"
+                    }`}>
                       <span className="font-bold text-white text-lg">
-                        {user.email?.charAt(0).toUpperCase()}
+                        {userProfile.name.charAt(0).toUpperCase()}
                       </span>
                     </div>
                     <div>
-                      <p className="font-medium text-white">{user.email?.split('@')[0]}</p>
-                      <p className="text-sm text-gray-300">{user.email}</p>
+                      <p className="font-medium text-white">{userProfile.name}</p>
+                      {isAdmin && (
+                        <p className="text-xs bg-gradient-to-r from-purple-600 to-pink-600 text-white px-2 py-0.5 rounded-full inline-block mt-1">
+                          ADMIN
+                        </p>
+                      )}
+                      <p className="text-sm text-gray-300 truncate">{user.email}</p>
                     </div>
                   </div>
                   
-                  <div className="flex gap-4 mb-4">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <FaHeart className="text-red-400 text-sm" />
-                        <span className="font-bold text-white">{userStats.totalWishlist}</span>
+                  {!isAdmin && (
+                    <div className="flex gap-4 mb-4">
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <FaHeart className="text-red-400 text-sm" />
+                          <span className="font-bold text-white">{userStats.totalWishlist}</span>
+                        </div>
+                        <p className="text-xs text-gray-300">Wishlist</p>
                       </div>
-                      <p className="text-xs text-gray-300">Wishlist</p>
-                    </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <FaStar className="text-yellow-400 text-sm" />
-                        <span className="font-bold text-white">{userStats.totalReviews}</span>
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <FaStar className="text-yellow-400 text-sm" />
+                          <span className="font-bold text-white">{userStats.totalReviews}</span>
+                        </div>
+                        <p className="text-xs text-gray-300">Ulasan</p>
                       </div>
-                      <p className="text-xs text-gray-300">Ulasan</p>
+                      <div className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <FaGlobe className="text-blue-400 text-sm" />
+                          <span className="font-bold text-white">{userStats.totalDestinations}</span>
+                        </div>
+                        <p className="text-xs text-gray-300">Destinasi</p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -469,111 +701,204 @@ export default function Navbar() {
 
       {/* MOBILE PROFILE POPUP */}
       {showProfilePopup && isClient && user && (
-        <div className="md:hidden fixed inset-0 bg-black/50 z-50 pt-16">
-          <div className="bg-white h-full rounded-t-3xl p-6 animate-slide-up">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-gray-800">Profil</h3>
-              <button
-                onClick={() => setShowProfilePopup(false)}
-                className="p-2 text-gray-500 hover:text-[#E0B554]"
-              >
-                <FaTimes className="w-6 h-6" />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-200">
-              <div className="w-16 h-16 bg-[#E0B554] rounded-full flex items-center justify-center">
-                <span className="font-bold text-white text-2xl">
-                  {user.email?.charAt(0).toUpperCase()}
-                </span>
+        <div className="md:hidden fixed inset-0 bg-black/60 z-50 pt-16">
+          <div className="bg-white h-full rounded-t-3xl overflow-hidden animate-slide-up">
+            {/* Header */}
+            <div className={`text-white p-6 ${isAdmin 
+              ? "bg-gradient-to-br from-purple-700 to-pink-700" 
+              : "bg-gradient-to-br from-[#133740] to-[#1a4a5a]"
+            }`}>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold">Profile {isAdmin && "(Admin)"}</h3>
+                <button
+                  onClick={() => setShowProfilePopup(false)}
+                  className="p-2 text-white hover:text-[#E0B554]"
+                >
+                  <FaTimes className="w-5 h-5" />
+                </button>
               </div>
-              <div>
-                <h4 className="font-bold text-lg text-gray-800">
-                  {user.email?.split('@')[0]}
-                </h4>
-                <p className="text-gray-500 text-sm">{user.email}</p>
-              </div>
-            </div>
-
-            {/* Mobile Stats */}
-            <div className="flex gap-6 mb-6 pb-6 border-b border-gray-200">
-              <div className="text-center flex-1">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <FaHeart className="text-red-500" />
-                  <span className="text-xl font-bold text-gray-800">{userStats.totalWishlist}</span>
-                </div>
-                <p className="text-sm text-gray-500">Wishlist</p>
-              </div>
-              <div className="text-center flex-1">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <FaStar className="text-yellow-500" />
-                  <span className="text-xl font-bold text-gray-800">{userStats.totalReviews}</span>
-                </div>
-                <p className="text-sm text-gray-500">Ulasan</p>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Link 
-                href="/profile" 
-                className="flex items-center gap-3 w-full p-4 rounded-xl text-left hover:bg-[#E0B554]/10"
-                onClick={() => setShowProfilePopup(false)}
-              >
-                <FaUser className="text-gray-500" />
-                <span>Profil Saya</span>
-              </Link>
               
-              <Link 
-                href="/wishlist" 
-                className="flex items-center gap-3 w-full p-4 rounded-xl text-left hover:bg-[#E0B554]/10"
-                onClick={() => setShowProfilePopup(false)}
-              >
-                <FaHeart className="text-red-500" />
-                <span>Wishlist</span>
-                {wishlistCount > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                    {wishlistCount}
+              {/* User Info */}
+              <div className="flex items-center gap-4 mb-6">
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg ${
+                  isAdmin 
+                    ? "bg-gradient-to-br from-purple-500 to-pink-500" 
+                    : "bg-gradient-to-br from-[#E0B554] to-[#d4a845]"
+                }`}>
+                  <span className="font-bold text-white text-2xl">
+                    {userProfile.name.charAt(0).toUpperCase()}
                   </span>
-                )}
-              </Link>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-xl mb-1">
+                    {userProfile.name}
+                    {isAdmin && (
+                      <span className="ml-2 text-xs bg-white/30 text-white px-2 py-1 rounded-full">
+                        ADMIN
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-gray-200 truncate">{user.email}</p>
+                </div>
+              </div>
               
+              {/* Stats Row */}
+              <div className="flex items-center justify-between bg-white/10 backdrop-blur-sm rounded-xl p-4">
+                <div className="text-center flex-1">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <FaHeart className={isAdmin ? "text-gray-300" : "text-red-300"} />
+                    <span className="font-bold text-xl">
+                      {isAdmin ? "∞" : userStats.totalWishlist}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-200">Wishlist</p>
+                </div>
+                <div className="h-8 w-px bg-white/30"></div>
+                <div className="text-center flex-1">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <FaStar className="text-yellow-300" />
+                    <span className="font-bold text-xl">{userStats.totalReviews}</span>
+                  </div>
+                  <p className="text-xs text-gray-200">Review</p>
+                </div>
+                <div className="h-8 w-px bg-white/30"></div>
+                <div className="text-center flex-1">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <FaGlobe className="text-blue-300" />
+                    <span className="font-bold text-xl">
+                      {isAdmin ? "∞" : userStats.totalDestinations}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-200">Destinasi</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Menu Items */}
+            <div className="p-4 space-y-2">
+              <h4 className="font-semibold text-gray-500 text-sm uppercase tracking-wider px-2 mb-2">
+                {isAdmin ? "Admin Menu" : "Menu"}
+              </h4>
+              
+              {/* Admin Menu Items */}
+              {isAdmin && (
+                <>
+                  <Link 
+                    href="/admin" 
+                    className="flex items-center gap-4 w-full p-4 bg-gray-50 rounded-xl hover:bg-purple-50"
+                    onClick={() => setShowProfilePopup(false)}
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg flex items-center justify-center">
+                      <FaShieldAlt className="text-purple-500 w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-800">Admin Dashboard</p>
+                      <p className="text-xs text-gray-500">Kelola sistem Geosantara</p>
+                    </div>
+                    <FaChevronRight className="text-gray-400" />
+                  </Link>
+                  
+                  <Link 
+                    href="/admin/destinations" 
+                    className="flex items-center gap-4 w-full p-4 bg-gray-50 rounded-xl hover:bg-purple-50"
+                    onClick={() => setShowProfilePopup(false)}
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg flex items-center justify-center">
+                      <FaImage className="text-blue-500 w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-800">Kelola Destinasi</p>
+                      <p className="text-xs text-gray-500">Tambah/edit destinasi wisata</p>
+                    </div>
+                    <FaChevronRight className="text-gray-400" />
+                  </Link>
+                  
+                  <div className="my-2 border-t border-gray-100"></div>
+                </>
+              )}
+
+              {/* Regular User Menu Items */}
+              {!isAdmin && (
+                <>
+                  <Link 
+                    href="/wishlist" 
+                    className="flex items-center gap-4 w-full p-4 bg-gray-50 rounded-xl hover:bg-[#E0B554]/10"
+                    onClick={() => setShowProfilePopup(false)}
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-red-100 to-red-50 rounded-lg flex items-center justify-center">
+                      <FaHeart className="text-red-500 w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-800">Wishlist</p>
+                      <p className="text-xs text-gray-500">{userStats.totalWishlist} destinasi tersimpan</p>
+                    </div>
+                    <FaChevronRight className="text-gray-400" />
+                  </Link>
+                  
+                  <Link 
+                    href="/reviews" 
+                    className="flex items-center gap-4 w-full p-4 bg-gray-50 rounded-xl hover:bg-[#E0B554]/10"
+                    onClick={() => setShowProfilePopup(false)}
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-yellow-100 to-yellow-50 rounded-lg flex items-center justify-center">
+                      <FaStar className="text-yellow-500 w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-800">Review</p>
+                      <p className="text-xs text-gray-500">{userStats.totalReviews} ulasan diberikan</p>
+                    </div>
+                    <FaChevronRight className="text-gray-400" />
+                  </Link>
+                  
+                  <Link 
+                    href="/destinasi" 
+                    className="flex items-center gap-4 w-full p-4 bg-gray-50 rounded-xl hover:bg-[#E0B554]/10"
+                    onClick={() => setShowProfilePopup(false)}
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg flex items-center justify-center">
+                      <FaGlobe className="text-blue-500 w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-800">Destinasi</p>
+                      <p className="text-xs text-gray-500">{userStats.totalDestinations} destinasi dikunjungi</p>
+                    </div>
+                    <FaChevronRight className="text-gray-400" />
+                  </Link>
+                </>
+              )}
+
+              {/* Common Menu Items */}
               <Link 
-                href="/bookings" 
-                className="flex items-center gap-3 w-full p-4 rounded-xl text-left hover:bg-[#E0B554]/10"
+                href="/profile/settings" 
+                className="flex items-center gap-4 w-full p-4 bg-gray-50 rounded-xl hover:bg-gray-100"
                 onClick={() => setShowProfilePopup(false)}
               >
-                <FaHistory className="text-blue-500" />
-                <span>Pemesanan</span>
+                <div className="w-12 h-12 bg-gradient-to-br from-gray-100 to-gray-50 rounded-lg flex items-center justify-center">
+                  <FaCog className="text-gray-500 w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-gray-800">Pengaturan</p>
+                  <p className="text-xs text-gray-500">Ubah profil & password</p>
+                </div>
+                <FaChevronRight className="text-gray-400" />
               </Link>
-              
-              <Link 
-                href="/settings" 
-                className="flex items-center gap-3 w-full p-4 rounded-xl text-left hover:bg-[#E0B554]/10"
-                onClick={() => setShowProfilePopup(false)}
+            </div>
+            
+            {/* Logout Button */}
+            <div className="p-4 mt-4 border-t border-gray-100">
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-4 w-full p-4 bg-red-50 text-red-600 rounded-xl hover:bg-red-100"
               >
-                <FaCog className="text-gray-500" />
-                <span>Pengaturan</span>
-              </Link>
-              
-              {/* LOGIN/LOGOUT BUTTON */}
-                      {user ? (
-                        <button
-                          onClick={async () => {
-                            await supabase.auth.signOut();
-                            window.location.href = "/";
-                          }}
-                          className="px-5 py-3 bg-red-500 text-white rounded-full hover:bg-red-600"
-                        >
-                          Logout
-                        </button>
-                      ) : (
-                        <Link
-                          href="/login?redirect=/destinasi"
-                          className="px-5 py-3 bg-green-600 text-white rounded-full hover:bg-green-700"
-                        >
-                          Login
-                        </Link>
-                      )}
+                <div className="w-12 h-12 bg-gradient-to-br from-red-100 to-red-50 rounded-lg flex items-center justify-center">
+                  <FaSignOutAlt className="text-red-500 w-5 h-5" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="font-medium">Logout</p>
+                  <p className="text-xs text-red-500">Keluar dari akun Anda</p>
+                </div>
+                <FaChevronRight className="text-red-400" />
+              </button>
             </div>
           </div>
         </div>
